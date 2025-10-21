@@ -36,13 +36,12 @@ class WebCrawler:
         self.domains_visited = set()
 
         #set up CSV metrics to view, defaulting to no for robots
-        self.metrics = {"site":starter_url,"total_links_on_page":0, "status_code":200}
-        self.list_domains_to_visit = []
+        self.metrics = {"site":[starter_url],"total_links_on_page":[0], "status_code":[0]}
 
+        '''
         # Current Domain name use this to valiate later the subdomain!
         self.urlParsedintoPieces = urlparse(self.starter_url)
         
-        '''
         https://docs.python.org/3/library/urllib.parse.html
         urlparse("scheme://netloc/path;parameters?query#fragment")
         ParseResult(scheme='scheme', netloc='netloc', path='/path;parameters', params='',
@@ -54,6 +53,8 @@ class WebCrawler:
                     path='/3/library/urllib.parse.html', params='',
                     query='highlight=params', fragment='url-parsing')
         '''
+
+        self.max_url_hard_stop = 50
 
         #identify robots
         self.headers = {
@@ -77,7 +78,7 @@ class WebCrawler:
         print("fetching url ", url )
         try:
             response = req.get( url, headers=self.headers, timeout=10 )
-            response.status_code
+            response.raise_for_status()
             '''
             https://requests.readthedocs.io/en/latest
             r = requests.get('https://api.github.com/user', auth=('user', 'pass'))
@@ -93,9 +94,23 @@ class WebCrawler:
             {'private_gists': 419, 'total_private_repos': 77, ...}
             '''
             return response.text,response.status_code
+        
         except req.RequestException as e:
-            print("Error fetching "+ url+ " : ", e , " ")
-            return None,response.status_code
+
+            print("Error fetching "+ url+ " : ", e , " , returning status code 404")
+            return None,404
+        
+    def validate_url(self, url:str ):
+        '''
+        This function will validate the inputed URL in the parameter, and it will then decide if it should be enqued or thrown out
+        
+        STRECH, validate the robots.txt of the new page as well
+        '''
+
+        if url in self.domains_visited:
+            return False
+        
+        return True
 
     def process_page(self, url:str ):
         '''
@@ -106,22 +121,25 @@ class WebCrawler:
         '''
         url_response_text, status_code_for_fetch_page = self.fetch_page( url )
 
-        self.metrics["site"] = url
+        self.metrics["site"].append(url)
 
         #TODO STRECH check robots.txt if we are allowed to parse the URL here
         # self.metrics["Allowed to Parse?"] = url
 
-        self.metrics["status_code"] = status_code_for_fetch_page
+        self.metrics["status_code"].append(status_code_for_fetch_page)
         
         if status_code_for_fetch_page == None:
             return None
         
         soup = BeautifulSoup(url_response_text,'html.parser')
+        '''
+        <a href="internet.html">Internet Protocols and Support</a>
+        <a href=""><code class="xref py py-mod docutils literal notranslate"><span class="pre">urllib.parse</span></code> â Parse URLs into components</a>
+        <a href="../copyright.html">Copyright</a>
+        <a href="/license.html">History and License</a>
+        '''
 
-        #TODO validate the subdomains somewhere in here, and add a error message to metrics
-        #TODO enque the new hrefs found in the soup
-        #TODO count the number of total links found
-        print(soup)
+        # filter just for the href part, and then combine to the proper URL, this is done uisng '.get(href)'
 
         # to filter on soup, we are going to use the 'find_all' command
         '''
@@ -131,8 +149,43 @@ class WebCrawler:
         #  <a class="sister" href="http://example.com/tillie" id="link3">Tillie</a>;
         #  and they lived at the bottom of a well.</p>
         '''
-        # i think we can also use the sieve filter / select filter
-        # [tag['id'] for tag in soup.css.iselect(".sister")]
+        counting_links = 0
+
+        for link in soup.find_all('a'):
+            # print(link.get('href'))
+            whole_url = urljoin( url, link.get('href') )
+            # removing the fragments as it is a reference to a header on the same page
+            new_url = whole_url.split('#')[0]
+        
+            # print( " new url made from fragments ", new_url, " old whole url is ", whole_url )
+                
+            # eneque the new URLs to query on
+            if self.validate_url(url) == True:
+                self.q_domains_to_visit.append(new_url)
+
+            # increase the number of links countered for the metrics
+            counting_links+=1
+
+        # print("Counter of all links found on page ", counting_links )
+
+        '''
+        From documentation: 
+
+        urllib.parse.urljoin(base, url, allow_fragments=True)
+        Construct a full (“absolute”) URL by combining a “base URL” (base) with another URL (url). 
+        Informally, this uses components of the base URL, in particular the addressing scheme, the network location and (part of) the path, to provide missing components in the relative URL. For example:
+        '''
+
+        #TODO validate the subdomains somewhere in here, and add a error message to metrics
+        #TODO enque the new hrefs found in the soup
+        #TODO count the number of total links found
+        #print(soup), see dummy markdown for this now
+
+
+        self.metrics["total_links_on_page"].append(counting_links)
+
+
+
 
 
 
@@ -146,8 +199,8 @@ class WebCrawler:
 
         we will be checking if the queues length is 0 of set_domains_to_vist since if its empty, everything must be in list_domains_to_vist
         """
-
-        while( len( self.q_domains_to_visit ) > 0 ):
+        round_counter = 0
+        while( ( len( self.q_domains_to_visit ) > 0 ) and ( self.max_url_hard_stop > round_counter ) ):
             curr_url = self.q_domains_to_visit.popleft()
             
             #TODO STRECH validate this domain in the URL / input the issue with it the metrics
@@ -158,11 +211,23 @@ class WebCrawler:
             
             print(" we are working on URL ", curr_url )
             self.process_page( curr_url )
+        
+            # we have not seen this URL before, add it onto our list
+            self.domains_visited.add( curr_url )
 
             print("sleeping for ", self.delay, " seconds ")
             time.sleep(self.delay)
 
+            print("Presently, we are on URL number ", round_counter, " there are currently ", len(self.q_domains_to_visit) ," more URLs to go through " )
+            round_counter +=1
+            
+            #TODO somehow this javascript;; is getting into my parser to make a request, I need to understand how, or find a way to exclude it
+            '''
+            Presently, we are on URL number  35  there are currently  15320  more URLs to go through 
+            we are working on URL  javascript:;
+            '''
 
+        #TODO add metrics parsing
         print( "done crawling! ") 
         return None
 
