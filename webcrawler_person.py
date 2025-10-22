@@ -67,16 +67,41 @@ class WebCrawler:
 
         return None
 
-    def robots_validate( self ):
+    def robots_populator( self, url ):
         '''
-        This is a strech function, it will be used if we are going to validate the delay, or the URL that we cannot crawl in robots.txt
+        We are going to play nice with the server, we are going to validate if we can_fetch the current page we are on and check it against the other
+        https://docs.python.org/3/library/urllib.robotparser.html
+
+
+        Args:
+            URL -> used to pull out the DNS name
+
+        Things done:
+            #TODO
+
         '''
+
+        #TODO add a way for robots to show the DNS name its currently running on
+
+        #TODO preform a series of if exist checks for the parameters robotparser has and if they exist ( not NONE ) then update the INIT function!
+
+        print( "Robots running! ")
         return None
 
     def fetch_page( self, url:str ):
         """
         We are going to use the 'requests' library to get if we can access this data
-        Fetch a single page.
+                
+        If we can, then we are going to fetch a single page, and pass the TXT to process_page so it can html via bs4
+
+        Args:
+            URL -> used validate if we can 'get' request the object, and if so, take the TXT and pass it into BS4
+
+        Things done:
+            if the page does not respond, assume it was a 404 ( likely could do some other err )
+
+            if the page does respond take the status code and the response.txt and pass it onward
+
         """
         print("fetching url ", url )
         try:
@@ -99,15 +124,26 @@ class WebCrawler:
             return response.text,response.status_code
         
         except req.RequestException as e:
+            #TODO work on a better method of error handling and finding the right status code here, this will bother me
 
-            print("Error fetching "+ url+ " : ", e , " , returning status code 404")
-            return None,404
+            print("Error fetching "+ url+ " : ", e , " , returning status code 504")
+            return None,504
         
     def validate_url(self, url:str ):
         '''
         This function will validate the inputed URL in the parameter, and it will then decide if it should be enqued or thrown out
         
         STRECH, validate the robots.txt of the new page as well
+
+        Args:
+            URL -> used to check if the URL cleaned up, existrs in the domains_visited set
+
+        Things done:
+            #check if the url exists in the set
+
+
+        #TODO add support for Robots.txt if its in the can_fetch
+
         '''
 
         if url in self.domains_visited:
@@ -117,9 +153,21 @@ class WebCrawler:
 
     def process_page(self, url:str ):
         '''
+        make the actual get request for the page, and then handle its URL
+
         process page
             -> first handle metrics
             -> second we are going to fetch the URL and get the status code
+
+        Args:
+            URL -> used to check if the URL cleaned up, existrs in the domains_visited set
+
+        Things done:
+            -> first call if this page is even active, if the page does repond, pass it into BS4
+            -> filter BS4 to remove fragments, and check if the URL has been seen before, before enqueing it
+            
+        #TODO 
+            -> noting that support is needed for robots.txt ( this should be done in validate.txt )
             
         '''
         url_response_text, status_code_for_fetch_page = self.fetch_page( url )
@@ -199,10 +247,16 @@ class WebCrawler:
         see:
         https://www.geeksforgeeks.org/python/writing-csv-files-in-python
 
-        COL -> TODO   
-        site -> the URL we are currently on
-        total_links_on_page -> the other things to href and check
-        status_code -> could we access the website?     
+        Args:
+            NA, using self.metrics
+
+        Things done:
+            break the Dict into its three keys and present them orderly:
+            site -> the URL we are currently on
+            total_links_on_page -> the other things to href and check
+            status_code -> could we access the website?
+
+        #TODO strech, include some metrics on how many hrefs we parsed per second, could be flashy
         """
 
         csv_header = self.metrics[0].keys() # pull the hdrs out
@@ -230,6 +284,7 @@ class WebCrawler:
             curr_url = self.q_domains_to_visit.popleft()
             
             #TODO STRECH validate this domain in the URL / input the issue with it the metrics
+            # you can likely just call validate domain perhaps? or call it before the while loop and input something into the metrics
 
             if curr_url in self.domains_visited:
                 # if we have seen this URL before, leave it
