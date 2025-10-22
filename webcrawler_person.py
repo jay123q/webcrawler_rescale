@@ -4,6 +4,7 @@ import urllib.robotparser as rp #https://docs.python.org/3/library/urllib.robotp
 from collections import deque #https://www.geeksforgeeks.org/python/queue-in-python
 import requests as req # https://pypi.org/project/requests
 import time
+import csv # used for metrics https://www.geeksforgeeks.org/python/writing-csv-files-in-python
 
 class WebCrawler:
     def __init__( self, starter_url:str , delay:int ):
@@ -36,7 +37,9 @@ class WebCrawler:
         self.domains_visited = set()
 
         #set up CSV metrics to view, defaulting to no for robots
-        self.metrics = {"site":[starter_url],"total_links_on_page":[0], "status_code":[0]}
+        self.metrics = [
+           # {"site":starter_url,"total_links_on_page":0, "status_code":0}
+        ]
 
         '''
         # Current Domain name use this to valiate later the subdomain!
@@ -54,7 +57,7 @@ class WebCrawler:
                     query='highlight=params', fragment='url-parsing')
         '''
 
-        self.max_url_hard_stop = 50
+        self.max_url_hard_stop = 5
 
         #identify robots
         self.headers = {
@@ -121,14 +124,15 @@ class WebCrawler:
         '''
         url_response_text, status_code_for_fetch_page = self.fetch_page( url )
 
-        self.metrics["site"].append(url)
 
         #TODO STRECH check robots.txt if we are allowed to parse the URL here
-        # self.metrics["Allowed to Parse?"] = url
 
-        self.metrics["status_code"].append(status_code_for_fetch_page)
         
-        if status_code_for_fetch_page == None:
+        if status_code_for_fetch_page == 404:
+            print("process_page saw a 404 from fetch_page() ")
+            # add this to metrics
+            self.metrics.append({"site":url,"total_links_on_page":0, "status_code":status_code_for_fetch_page})
+
             return None
         
         soup = BeautifulSoup(url_response_text,'html.parser')
@@ -158,6 +162,9 @@ class WebCrawler:
             new_url = whole_url.split('#')[0]
         
             # print( " new url made from fragments ", new_url, " old whole url is ", whole_url )
+
+            if "javascript:;" in link:
+                print("found invalid javascript:; line in link from soup! here is link! ", link)
                 
             # eneque the new URLs to query on
             if self.validate_url(url) == True:
@@ -181,15 +188,34 @@ class WebCrawler:
         #TODO count the number of total links found
         #print(soup), see dummy markdown for this now
 
+        self.metrics.append({"site":url,"total_links_on_page":counting_links, "status_code":status_code_for_fetch_page})
 
-        self.metrics["total_links_on_page"].append(counting_links)
+        return 1
+
+    def metrics_csv(self):
+        """
+        We are using this for output metrics and to provide a digestable overview
+
+        see:
+        https://www.geeksforgeeks.org/python/writing-csv-files-in-python
+
+        COL -> TODO   
+        site -> the URL we are currently on
+        total_links_on_page -> the other things to href and check
+        status_code -> could we access the website?     
+        """
+
+        csv_header = self.metrics[0].keys() # pull the hdrs out
+
+        with open("cvs_folder_of_sites/"+"metrics_output.csv", 'w', newline='' ) as csvfile:
+            writer = csv.DictWriter( csvfile, fieldnames=csv_header )
+            writer.writeheader()
+            writer.writerows(self.metrics)
+
+        print("csv writing complete")
 
 
 
-
-
-
-        
 
         
 
@@ -219,6 +245,9 @@ class WebCrawler:
             time.sleep(self.delay)
 
             print("Presently, we are on URL number ", round_counter, " there are currently ", len(self.q_domains_to_visit) ," more URLs to go through " )
+            print()
+            print()
+            print()
             round_counter +=1
             
             #TODO somehow this javascript;; is getting into my parser to make a request, I need to understand how, or find a way to exclude it
@@ -227,7 +256,9 @@ class WebCrawler:
             we are working on URL  javascript:;
             '''
 
-        #TODO add metrics parsing
+        # write metrics from RAM
+        self.metrics_csv()
+
         print( "done crawling! ") 
         return None
 
