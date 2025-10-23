@@ -1,6 +1,6 @@
 from bs4 import BeautifulSoup #https://www.crummy.com/software/BeautifulSoup/bs4/doc/#translating-this-documentation
 from urllib.parse import urljoin, urlparse #https://docs.python.org/3/library/urllib.parse.html
-import urllib.robotparser as rp #https://docs.python.org/3/library/urllib.robotparser.html
+import urllib.robotparser #https://docs.python.org/3/library/urllib.robotparser.html
 from collections import deque #https://www.geeksforgeeks.org/python/queue-in-python
 import requests as req # https://pypi.org/project/requests
 import time
@@ -19,6 +19,7 @@ class WebCrawler:
             csv -> created to log the domains we have been to and what happened and how many href its happened
             domains_visted -> set of places we have been, using a SET to avoid dups
             self.headers -> idenity myself as a agent
+            robots_hostname -> to avoid re-calling for robots.txt if the hostname say 'geeks_for_geeks' is the same
         """
 
         self.starter_url = starter_url
@@ -41,21 +42,6 @@ class WebCrawler:
            # {"site":starter_url,"total_links_on_page":0, "status_code":0}
         ]
 
-        '''
-        # Current Domain name use this to valiate later the subdomain!
-        self.urlParsedintoPieces = urlparse(self.starter_url)
-        
-        https://docs.python.org/3/library/urllib.parse.html
-        urlparse("scheme://netloc/path;parameters?query#fragment")
-        ParseResult(scheme='scheme', netloc='netloc', path='/path;parameters', params='',
-                    query='query', fragment='fragment')
-        o = urlparse("http://docs.python.org:80/3/library/urllib.parse.html?"
-                    "highlight=params#url-parsing")
-        o
-        ParseResult(scheme='http', netloc='docs.python.org:80',
-                    path='/3/library/urllib.parse.html', params='',
-                    query='highlight=params', fragment='url-parsing')
-        '''
 
         self.max_url_hard_stop = 5
 
@@ -64,6 +50,10 @@ class WebCrawler:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
 
+        self.robots_hostname = ""
+        self.robots_url = ""
+
+        self.rp = urllib.robotparser.RobotFileParser()
 
         return None
 
@@ -74,18 +64,53 @@ class WebCrawler:
 
 
         Args:
-            URL -> used to pull out the DNS name
+            URL -> used to pull out the DNS name, and check to see if the DNS / hostname is different from the one stored, if it is we will update the robots_url storage as well
 
         Things done:
-            #TODO
+            We parsed the URL, and created the https://hostname/robots.txt, we will store the URL and the host name for later use in the validation function
+            
+            We checked if robots.txt contains a crawler delay, and if it does, we update our sleep parameter
 
         '''
-
-        #TODO add a way for robots to show the DNS name its currently running on
-
-        #TODO preform a series of if exist checks for the parameters robotparser has and if they exist ( not NONE ) then update the INIT function!
-
         print( "Robots running! ")
+        
+        # https://docs.python.org/3/library/urllib.parse.html#url-parsing-security
+        url_pieces = urlparse(url)
+
+        if self.robots_hostname == url_pieces.hostname:
+            # no change to the host name, do not re-execute
+            print( " no change to the hostname, do not execute a new robots.txt call! ")
+            return None
+
+        robots_url = url_pieces.scheme + "://" # set up the basics for a robot request
+        
+        robots_url += url_pieces.hostname + '/robots.txt'
+
+        # removing this right now, and testing if we can just grab the hostname directly
+        # if url_pieces.netloc != '':
+        #     # if netloc is empty, then we need to split on the path and take the first parameter
+        #     path_parts = url_pieces.split('/')
+        #     DNS_name = path_parts.at(0)
+        #     robots_url += DNS_name + '/robots.txt'
+
+        # else:
+        #     # some logic to remove 80 / the port, and then preform the same addition
+        
+        print(" the created robots URL is ", robots_url )
+
+        self.robots_url = robots_url
+        self.robots_hostname = url_pieces.hostname
+
+        self.rp.set_url(self.robots_url)
+        self.rp.read()
+        
+
+        if self.rp.crawl_delay("*") != None:
+            self.delay = self.rp.crawl_delay("*")
+
+
+        
+
         return None
 
     def fetch_page( self, url:str ):
@@ -140,11 +165,24 @@ class WebCrawler:
 
         Things done:
             #check if the url exists in the set
+            #check if we can_fetch the link using the stored robots.txt value
 
 
         #TODO add support for Robots.txt if its in the can_fetch
-
         '''
+        print()
+        print()
+        print("WARNING, YOU ARE VALIDATING HOSTNAME ", self.robots_populator, " against a URL that might not share the same name ", url )
+        print(" we likely need to either stop going out of bounds on the same hostname, or have a if statement to catch this ")
+        print()
+        print()
+
+
+        if self.rp.can_fetch("*",url) == False:
+            print("robots has fetched that we cannot fetch this URL ", url )
+
+            return False
+
 
         if url in self.domains_visited:
             return False
@@ -165,17 +203,10 @@ class WebCrawler:
         Things done:
             -> first call if this page is even active, if the page does repond, pass it into BS4
             -> filter BS4 to remove fragments, and check if the URL has been seen before, before enqueing it
-            
-        #TODO 
-            -> noting that support is needed for robots.txt ( this should be done in validate.txt )
-            
+                        
         '''
         url_response_text, status_code_for_fetch_page = self.fetch_page( url )
-
-
-        #TODO STRECH check robots.txt if we are allowed to parse the URL here
-
-        
+      
         if status_code_for_fetch_page == 404:
             print("process_page saw a 404 from fetch_page() ")
             # add this to metrics
@@ -231,10 +262,6 @@ class WebCrawler:
         Informally, this uses components of the base URL, in particular the addressing scheme, the network location and (part of) the path, to provide missing components in the relative URL. For example:
         '''
 
-        #TODO validate the subdomains somewhere in here, and add a error message to metrics
-        #TODO enque the new hrefs found in the soup
-        #TODO count the number of total links found
-        #print(soup), see dummy markdown for this now
 
         self.metrics.append({"site":url,"total_links_on_page":counting_links, "status_code":status_code_for_fetch_page})
 
@@ -282,6 +309,9 @@ class WebCrawler:
         round_counter = 0
         while( ( len( self.q_domains_to_visit ) > 0 ) and ( self.max_url_hard_stop > round_counter ) ):
             curr_url = self.q_domains_to_visit.popleft()
+
+            #populate the robots.txt
+            self.robots_populator( curr_url )
             
             #TODO STRECH validate this domain in the URL / input the issue with it the metrics
             # you can likely just call validate domain perhaps? or call it before the while loop and input something into the metrics
