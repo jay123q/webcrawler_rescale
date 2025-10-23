@@ -73,42 +73,48 @@ class WebCrawler:
 
         '''
         print( "Robots running! ")
-        
-        # https://docs.python.org/3/library/urllib.parse.html#url-parsing-security
-        url_pieces = urlparse(url)
+        try:
+            
+            # https://docs.python.org/3/library/urllib.parse.html#url-parsing-security
+            url_pieces = urlparse(url)
 
-        if self.robots_hostname == url_pieces.hostname:
-            # no change to the host name, do not re-execute
-            print( " no change to the hostname, do not execute a new robots.txt call! ")
-            return None
+            if self.robots_hostname == url_pieces.hostname:
+                # no change to the host name, do not re-execute
+                print( " no change to the hostname, do not execute a new robots.txt call! ")
+                return None
 
-        robots_url = url_pieces.scheme + "://" # set up the basics for a robot request
-        
-        robots_url += url_pieces.hostname + '/robots.txt'
+            # reset delay incase it was changed to a different number in a past hostname
+            self.delay = 2
 
-        # removing this right now, and testing if we can just grab the hostname directly
-        # if url_pieces.netloc != '':
-        #     # if netloc is empty, then we need to split on the path and take the first parameter
-        #     path_parts = url_pieces.split('/')
-        #     DNS_name = path_parts.at(0)
-        #     robots_url += DNS_name + '/robots.txt'
+            robots_url = url_pieces.scheme + "://" # set up the basics for a robot request
+            
+            robots_url += url_pieces.hostname + '/robots.txt'
 
-        # else:
-        #     # some logic to remove 80 / the port, and then preform the same addition
-        
-        print(" the created robots URL is ", robots_url )
+            # removing this right now, and testing if we can just grab the hostname directly
+            # if url_pieces.netloc != '':
+            #     # if netloc is empty, then we need to split on the path and take the first parameter
+            #     path_parts = url_pieces.split('/')
+            #     DNS_name = path_parts.at(0)
+            #     robots_url += DNS_name + '/robots.txt'
 
-        self.robots_url = robots_url
-        self.robots_hostname = url_pieces.hostname
+            # else:
+            #     # some logic to remove 80 / the port, and then preform the same addition
+            
+            print(" the created robots URL is ", robots_url )
 
-        self.rp.set_url(self.robots_url)
-        self.rp.read()
-        
+            self.robots_url = robots_url
+            self.robots_hostname = url_pieces.hostname
 
-        if self.rp.crawl_delay("*") != None:
-            self.delay = self.rp.crawl_delay("*")
+            self.rp.set_url(self.robots_url)
+            self.rp.read()
+            
 
+            if self.rp.crawl_delay("*") != None:
+                print("updating the crawler delay to ", self.rp.crawl_delay("*") )
+                self.delay = self.rp.crawl_delay("*")
 
+        except:
+            print("handle exception")
         
 
         return None
@@ -151,8 +157,10 @@ class WebCrawler:
         except req.RequestException as e:
             #TODO work on a better method of error handling and finding the right status code here, this will bother me
 
-            print("Error fetching "+ url+ " : ", e , " , returning status code 504")
-            return None,504
+            print("Error fetching "+ url+ " : returning status code ", e )
+
+            # treating the e as a 404 until we can pull off finding the status code
+            return None,404
         
     def validate_url(self, url:str ):
         '''
@@ -170,12 +178,12 @@ class WebCrawler:
 
         #TODO add support for Robots.txt if its in the can_fetch
         '''
-        print()
-        print()
-        print("WARNING, YOU ARE VALIDATING HOSTNAME ", self.robots_populator, " against a URL that might not share the same name ", url )
-        print(" we likely need to either stop going out of bounds on the same hostname, or have a if statement to catch this ")
-        print()
-        print()
+
+        if self.robots_hostname not in url:
+            print()
+            print("WARNING, YOU ARE VALIDATING HOSTNAME ", self.robots_hostname , " against a URL that might not share the same name ", url )
+            print(" we likely need to either stop going out of bounds on the same hostname, or have a if statement to catch this ")
+            print()
 
 
         if self.rp.can_fetch("*",url) == False:
@@ -208,19 +216,13 @@ class WebCrawler:
         url_response_text, status_code_for_fetch_page = self.fetch_page( url )
       
         if status_code_for_fetch_page == 404:
-            print("process_page saw a 404 from fetch_page() ")
+            print("process_page saw no response from fetch_page() ")
             # add this to metrics
             self.metrics.append({"site":url,"total_links_on_page":0, "status_code":status_code_for_fetch_page})
 
             return None
         
         soup = BeautifulSoup(url_response_text,'html.parser')
-        '''
-        <a href="internet.html">Internet Protocols and Support</a>
-        <a href=""><code class="xref py py-mod docutils literal notranslate"><span class="pre">urllib.parse</span></code> â Parse URLs into components</a>
-        <a href="../copyright.html">Copyright</a>
-        <a href="/license.html">History and License</a>
-        '''
 
         # filter just for the href part, and then combine to the proper URL, this is done uisng '.get(href)'
 
@@ -297,9 +299,6 @@ class WebCrawler:
 
 
 
-
-        
-
     def crawl( self ):
         """
         Setting up main while loop and driver here
@@ -310,15 +309,20 @@ class WebCrawler:
         while( ( len( self.q_domains_to_visit ) > 0 ) and ( self.max_url_hard_stop > round_counter ) ):
             curr_url = self.q_domains_to_visit.popleft()
 
-            #populate the robots.txt
-            self.robots_populator( curr_url )
-            
-            #TODO STRECH validate this domain in the URL / input the issue with it the metrics
-            # you can likely just call validate domain perhaps? or call it before the while loop and input something into the metrics
+            if len(curr_url) == 0:
+                # curr_url is empty
+                print(" the current url is found to have a length of 0, this typically means that a validate reuqest timed out, check to be clear ")
+                continue
 
             if curr_url in self.domains_visited:
                 # if we have seen this URL before, leave it
                 continue
+
+
+            #populate the robots.txt
+            self.robots_populator( curr_url )
+            
+
             
             print(" we are working on URL ", curr_url )
             self.process_page( curr_url )
@@ -326,14 +330,14 @@ class WebCrawler:
             # we have not seen this URL before, add it onto our list
             self.domains_visited.add( curr_url )
 
-            print("sleeping for ", self.delay, " seconds ")
-            time.sleep(self.delay)
 
+            print()
             print("Presently, we are on URL number ", round_counter, " there are currently ", len(self.q_domains_to_visit) ," more URLs to go through " )
             print()
-            print()
-            print()
             round_counter +=1
+
+            print("sleeping for ", self.delay, " seconds ")
+            time.sleep(self.delay)
             
             #TODO somehow this javascript;; is getting into my parser to make a request, I need to understand how, or find a way to exclude it
             '''
